@@ -1,0 +1,24 @@
+name: Golden Baby Pro Daily Campaign
+on:
+  schedule:
+    - cron: '0 15 * * *' # 15:00 UTC; GitHub schedules can be delayed
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  prepare-campaign:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Generate daily brief
+        run: python scripts/daily_campaign.py
+      - name: Upload downloadable campaign brief
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-baby-pro-daily-brief
+          path: campaign_output/
+          retention-days: 30
