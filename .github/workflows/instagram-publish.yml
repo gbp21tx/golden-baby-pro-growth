@@ -39,53 +39,96 @@ jobs:
           import time
           import urllib.parse
           import urllib.request
+          import urllib.error
 
           base = "https://graph.facebook.com/v27.0"
           user_id = os.environ["INSTAGRAM_USER_ID"]
           token = os.environ["META_ACCESS_TOKEN"]
 
-          def post(endpoint, params):
-              data = urllib.parse.urlencode({
-                  **params,
-                  "access_token": token
-              }).encode()
-              request = urllib.request.Request(
-                  f"{base}/{endpoint}",
-                  data=data,
-                  method="POST"
+          if not token or not user_id:
+              raise RuntimeError(
+                  "Missing Meta access token or Instagram user ID"
               )
-              with urllib.request.urlopen(request, timeout=60) as response:
-                  return json.load(response)
 
-          result = post(f"{user_id}/media", {
-              "image_url": os.environ["IMAGE_URL"],
-              "caption": os.environ["CAPTION"]
-          })
+          image_url = os.environ["IMAGE_URL"].strip()
+          if not image_url.startswith("https://"):
+              raise ValueError("Image URL must use HTTPS")
+
+          def api_request(endpoint, params=None, method="GET"):
+              params = params or {}
+              params["access_token"] = token
+
+              if method == "POST":
+                  data = urllib.parse.urlencode(params).encode()
+                  url = f"{base}/{endpoint}"
+              else:
+                  data = None
+                  url = f"{base}/{endpoint}?" + urllib.parse.urlencode(params)
+
+              request = urllib.request.Request(
+                  url, data=data, method=method
+              )
+
+              try:
+                  with urllib.request.urlopen(request, timeout=60) as response:
+                      return json.load(response)
+              except urllib.error.HTTPError as error:
+                  raw = error.read().decode("utf-8", errors="replace")
+                  print("Meta API HTTP status:", error.code)
+                  try:
+                      details = json.loads(raw).get("error", {})
+                      print("Meta error code:", details.get("code"))
+                      print("Meta error subcode:", details.get("error_subcode"))
+                      print("Meta error message:", details.get("message"))
+                      print("Meta error type:", details.get("type"))
+                  except ValueError:
+                      print("Meta returned a non-JSON error response")
+                  raise RuntimeError(
+                      f"Meta API request failed: HTTP {error.code}"
+                  ) from None
+
+          print("Step 1: Creating Instagram media container")
+
+          result = api_request(
+              f"{user_id}/media",
+              {
+                  "image_url": image_url,
+                  "caption": os.environ["CAPTION"]
+              },
+              method="POST"
+          )
 
           creation_id = result["id"]
-          print("Media container created.")
+          print("Media container created successfully.")
+
+          print("Step 2: Waiting for Instagram processing")
 
           for attempt in range(20):
-              query = urllib.parse.urlencode({
-                  "fields": "status_code",
-                  "access_token": token
-              })
-              request = urllib.request.Request(
-                  f"{base}/{creation_id}?{query}"
+              result = api_request(
+                  creation_id,
+                  {"fields": "status_code"}
               )
-              with urllib.request.urlopen(request, timeout=30) as response:
-                  status = json.load(response)["status_code"]
+              status = result.get("status_code")
+              print(f"Processing attempt {attempt + 1}: {status}")
 
               if status == "FINISHED":
                   break
               if status in ("ERROR", "EXPIRED"):
-                  raise RuntimeError(f"Media processing: {status}")
+                  raise RuntimeError(
+                      f"Instagram media processing failed: {status}"
+                  )
               time.sleep(10)
           else:
-              raise TimeoutError("Media processing timed out")
+              raise TimeoutError("Instagram processing timed out")
 
-          published = post(f"{user_id}/media_publish", {
-              "creation_id": creation_id
-          })
+          print("Step 3: Publishing Instagram post")
+
+          published = api_request(
+              f"{user_id}/media_publish",
+              {"creation_id": creation_id},
+              method="POST"
+          )
+
+          print("SUCCESS: Instagram media published")
           print("Published media ID:", published["id"])
           PY
