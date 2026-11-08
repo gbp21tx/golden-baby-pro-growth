@@ -1,0 +1,91 @@
+
+name: Golden Baby Pro Instagram Publisher
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_url:
+        description: "Public HTTPS image URL"
+        required: true
+        type: string
+      caption:
+        description: "Instagram caption"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instagram-publisher
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Publish approved Instagram post
+        env:
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+          INSTAGRAM_USER_ID: ${{ secrets.INSTAGRAM_USER_ID }}
+          IMAGE_URL: ${{ inputs.image_url }}
+          CAPTION: ${{ inputs.caption }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import json
+          import time
+          import urllib.parse
+          import urllib.request
+
+          base = "https://graph.facebook.com/v27.0"
+          user_id = os.environ["INSTAGRAM_USER_ID"]
+          token = os.environ["META_ACCESS_TOKEN"]
+
+          def post(endpoint, params):
+              data = urllib.parse.urlencode({
+                  **params,
+                  "access_token": token
+              }).encode()
+              request = urllib.request.Request(
+                  f"{base}/{endpoint}",
+                  data=data,
+                  method="POST"
+              )
+              with urllib.request.urlopen(request, timeout=60) as response:
+                  return json.load(response)
+
+          result = post(f"{user_id}/media", {
+              "image_url": os.environ["IMAGE_URL"],
+              "caption": os.environ["CAPTION"]
+          })
+
+          creation_id = result["id"]
+          print("Media container created.")
+
+          for attempt in range(20):
+              query = urllib.parse.urlencode({
+                  "fields": "status_code",
+                  "access_token": token
+              })
+              request = urllib.request.Request(
+                  f"{base}/{creation_id}?{query}"
+              )
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  status = json.load(response)["status_code"]
+
+              if status == "FINISHED":
+                  break
+              if status in ("ERROR", "EXPIRED"):
+                  raise RuntimeError(f"Media processing: {status}")
+              time.sleep(10)
+          else:
+              raise TimeoutError("Media processing timed out")
+
+          published = post(f"{user_id}/media_publish", {
+              "creation_id": creation_id
+          })
+          print("Published media ID:", published["id"])
+          PY
