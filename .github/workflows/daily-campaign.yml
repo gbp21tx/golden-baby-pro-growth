@@ -15,7 +15,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Generate daily brief
-        run: python scripts/daily_campaign.py
+        run: python daily_campaign.py
       - name: Upload downloadable campaign brief
         uses: actions/upload-artifact@v4
         with:
