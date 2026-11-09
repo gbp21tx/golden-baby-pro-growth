@@ -1,0 +1,32 @@
+name: Golden Baby Pro Daily Instagram Reels
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Preview without publishing"
+        type: choice
+        required: true
+        default: "true"
+        options: ["true", "false"]
+  schedule:
+    - cron: '0 15 * * *'
+permissions:
+  contents: read
+concurrency:
+  group: gbp-daily-reels
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select and publish daily Reel
+        env:
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+          INSTAGRAM_USER_ID: ${{ secrets.INSTAGRAM_USER_ID }}
+          REELS_PUBLIC_BASE_URL: ${{ vars.REELS_PUBLIC_BASE_URL }}
+          ENABLE_AUTO_REELS: ${{ vars.ENABLE_AUTO_REELS }}
+          EVENT_NAME: ${{ github.event_name }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: python3 scripts/publish_reel.py
