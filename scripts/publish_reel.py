@@ -17,10 +17,26 @@ entry = next(row for row in rows if row["day"] == today)
 base_url = os.getenv("REELS_PUBLIC_BASE_URL", "").strip().rstrip("/")
 if not base_url:
     raise RuntimeError("Missing repository variable REELS_PUBLIC_BASE_URL")
-video_url = base_url + "/" + quote(entry["file"])
+# Alternate the original and approved likeness artwork every calendar week.
+# A missing V2 asset must never break the existing daily publisher.
+original_file = entry["file"]
+v2_file = original_file.replace(".mp4", "_v2.mp4")
+use_v2 = datetime.datetime.now(ZoneInfo("America/Chicago")).isocalendar().week % 2 == 0
+selected_file = v2_file if use_v2 else original_file
+video_url = base_url + "/" + quote(selected_file)
 if not video_url.startswith("https://"):
     raise RuntimeError("Public media URL must use HTTPS")
+if use_v2:
+    try:
+        with urlopen(Request(video_url, method="HEAD"), timeout=20) as response:
+            if response.status != 200 or "video/" not in response.headers.get("Content-Type", ""):
+                raise ValueError("New video is not available as a video resource")
+    except Exception as error:
+        print("New artwork video unavailable; using original:", type(error).__name__)
+        selected_file = original_file
+        video_url = base_url + "/" + quote(original_file)
 print("Day:", today, "Song:", entry["song"])
+print("Rotation:", "new likeness" if selected_file == v2_file else "original")
 print("Video URL:", video_url)
 if dry_run:
     print("DRY RUN; no post sent. Caption:", entry["caption"])
