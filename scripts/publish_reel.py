@@ -12,31 +12,30 @@ if scheduled and os.getenv("ENABLE_AUTO_REELS") != "true":
 
 with open("reels/schedule.csv", newline="", encoding="utf-8") as file:
     rows = list(csv.DictReader(file))
-today = datetime.datetime.now(ZoneInfo("America/Chicago")).strftime("%A")
-entry = next(row for row in rows if row["day"] == today)
+today = datetime.datetime.now(ZoneInfo("America/Chicago")).date()
+day = today.strftime("%A")
+# Alternate on Mondays, including across ISO year boundaries.
+weeks = (today - datetime.date(2026, 11, 23)).days // 7
+rotation = "30s" if weeks % 2 == 0 else "v2"
+entry = next(row for row in rows if row["day"] == day and row["week"] == rotation)
 base_url = os.getenv("REELS_PUBLIC_BASE_URL", "").strip().rstrip("/")
 if not base_url:
     raise RuntimeError("Missing repository variable REELS_PUBLIC_BASE_URL")
-# Alternate the original and approved likeness artwork every calendar week.
-# A missing V2 asset must never break the existing daily publisher.
-original_file = entry["file"]
-v2_file = original_file.replace(".mp4", "_v2.mp4")
-use_v2 = datetime.datetime.now(ZoneInfo("America/Chicago")).isocalendar().week % 2 == 0
-selected_file = v2_file if use_v2 else original_file
-video_url = base_url + "/" + quote(selected_file)
+video_url = base_url + "/" + quote(entry["file"])
 if not video_url.startswith("https://"):
     raise RuntimeError("Public media URL must use HTTPS")
-if use_v2:
+if rotation == "30s":
     try:
         with urlopen(Request(video_url, method="HEAD"), timeout=20) as response:
             if response.status != 200 or "video/" not in response.headers.get("Content-Type", ""):
-                raise ValueError("New video is not available as a video resource")
-    except Exception as error:
-        print("New artwork video unavailable; using original:", type(error).__name__)
-        selected_file = original_file
-        video_url = base_url + "/" + quote(original_file)
-print("Day:", today, "Song:", entry["song"])
-print("Rotation:", "new likeness" if selected_file == v2_file else "original")
+                raise ValueError("30-second video is not available as a video resource")
+    except (OSError, ValueError) as error:
+        print("30-second video unavailable; using likeness Reel:", type(error).__name__)
+        rotation = "v2"
+        entry = next(row for row in rows if row["day"] == day and row["week"] == rotation)
+        video_url = base_url + "/" + quote(entry["file"])
+print("Day:", day, "Song:", entry["song"])
+print("Rotation:", rotation)
 print("Video URL:", video_url)
 if dry_run:
     print("DRY RUN; no post sent. Caption:", entry["caption"])
